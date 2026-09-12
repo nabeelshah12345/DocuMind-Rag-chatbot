@@ -1,7 +1,7 @@
-
 import streamlit as st
 import tempfile
 import os
+import hashlib
 
 from dotenv import load_dotenv
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
@@ -12,6 +12,21 @@ from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
+try:
+    MISTRAL_API_KEY = st.secrets.get(
+        "MISTRAL_API_KEY",
+        os.getenv("MISTRAL_API_KEY")
+    )
+except Exception:
+    MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+
+
+if not MISTRAL_API_KEY:
+    st.error(
+        "MISTRAL_API_KEY not found. "
+        "Add it to your .env file locally or Streamlit secrets when deployed."
+    )
+    st.stop()
 
 st.set_page_config(
     page_title="DocuMind",
@@ -22,13 +37,24 @@ st.set_page_config(
 st.title("🤖 DocuMind")
 st.caption("Upload a PDF and ask questions from its content.")
 
-
+# state
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
+# Clear Chat Button
+if st.session_state.messages:
+    if st.button("🗑️ Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+# Display Previous Messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if "file_hash" not in st.session_state:
+    st.session_state.file_hash = None
 
 
 uploaded_file = st.file_uploader(
@@ -39,63 +65,124 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
 
-    if st.session_state.vector_store is None:
+    # Create unique hash for uploaded PDF
+    current_file_hash = hashlib.md5(
+        uploaded_file.getvalue()
+    ).hexdigest()
+
+    if current_file_hash != st.session_state.file_hash:
 
         with st.spinner("Processing your PDF..."):
 
-            # Save uploaded PDF temporarily
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".pdf"
-            ) as temp_file:
+            pdf_path = None
 
-                temp_file.write(uploaded_file.getvalue())
-                pdf_path = temp_file.name
+            try:
 
-            # Load PDF
-            loader = PyPDFLoader(pdf_path)
-            docs = loader.load()
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=".pdf"
+                ) as temp_file:
 
-            # Split into chunks
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=100,
-                chunk_overlap=10
-            )
+                    temp_file.write(
+                        uploaded_file.getvalue()
+                    )
+                    pdf_path = temp_file.name
 
-            chunks = splitter.split_documents(docs)
 
-            # Create embeddings
-            embedding = MistralAIEmbeddings(
-            model="codestral-embed-2505",
-            api_key=st.secrets["MISTRAL_API_KEY"]
-            )
+                loader = PyPDFLoader(pdf_path)
 
-            # Create Chroma database
-            vector_store = Chroma.from_documents(
-                documents=chunks,
-                embedding=embedding
-            )
+                docs = loader.load()
 
-            st.session_state.vector_store = vector_store
+                if not docs:
+                    st.error(
+                        "Could not extract any pages from this PDF."
+                    )
+                    st.stop()
 
-            # Remove temporary PDF
-            os.remove(pdf_path)
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=1000,
+                    chunk_overlap=150
+                )
+                chunks = splitter.split_documents(docs)
 
-        st.success("PDF processed successfully! You can now ask questions.")
+                if not chunks:
+                    st.error(
+                        "No text chunks were created from this PDF."
+                    )
+                    st.stop()
+
+                chunks = [
+                    chunk
+                    for chunk in chunks
+                    if chunk.page_content.strip()
+                ]
+
+                if not chunks:
+                    st.error(
+                        "The PDF does not contain readable text. "
+                        "It may be an image/scanned PDF."
+                    )
+                    st.stop()
+
+                embedding = MistralAIEmbeddings(
+                    model="mistral-embed",
+                    api_key=MISTRAL_API_KEY
+                )
+
+                test_embedding = embedding.embed_query(
+                    "This is a test sentence."
+                )
+
+                if not test_embedding:
+                    st.error(
+                        "Mistral returned an empty embedding."
+                    )
+                    st.stop()
+
+                vector_store = Chroma.from_documents(
+                    documents=chunks,
+                    embedding=embedding
+                )
+
+                st.session_state.vector_store = vector_store
+
+                # Save current PDF hash
+                st.session_state.file_hash = current_file_hash
+
+                # Clear previous conversation
+                st.session_state.messages = []
+                st.success(
+                    f"PDF processed successfully! "
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Error while processing PDF:\n\n{str(e)}"
+                )
+
+                st.session_state.vector_store = None
+
+            finally:
+                if pdf_path and os.path.exists(pdf_path):
+                    os.remove(pdf_path)
 
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+
+        st.markdown(
+            message["content"]
+        )
 
 
 if st.session_state.vector_store is not None:
 
-    query = st.chat_input("Ask a question about your PDF...")
-
+    query = st.chat_input(
+        "Ask a question about your PDF..."
+    )
     if query:
 
-        # Display user message
         st.session_state.messages.append(
             {
                 "role": "user",
@@ -106,50 +193,54 @@ if st.session_state.vector_store is not None:
         with st.chat_message("user"):
             st.markdown(query)
 
-        # Retriever
-        retriever = st.session_state.vector_store.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": 5,
-                "fetch_k": 10,
-                "lambda_mult": 0.5
-            }
+        retriever = (
+            st.session_state.vector_store
+            .as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": 5,
+                    "fetch_k": 10,
+                    "lambda_mult": 0.5
+                }
+            )
         )
 
-        # Retrieve documents
-        docs = retriever.invoke(query)
+        retrieved_docs = retriever.invoke(query)
+        if retrieved_docs:
 
-        context = "\n".join(
-            [doc.page_content for doc in docs]
-        )
+            context = "\n\n".join(
+                [
+                    doc.page_content
+                    for doc in retrieved_docs
+                ]
+            )
+        else:
+            context = "No relevant context was found."
 
-        # Prompt
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    """You are a helpful assistant.
-
-                    Use only the provided context to answer the question.
-
-                    If the answer is not in the context, say:
-                    "I could not find the answer in the provided context."
                     """
+You are a helpful assistant.
+
+Answer the question using only the provided context.
+
+If the answer is not present in the context, say:
+
+"I could not find the answer in the provided context."
+"""
                 ),
                 (
                     "user",
                     """
-                    Context:
-                    {context}
+Context:{context}
 
-                    Question:
-                    {question}
-                    """
+Question:{question}
+"""
                 )
             ]
         )
-
-        # Create prompt
         final_prompt = prompt.invoke(
             {
                 "context": context,
@@ -157,32 +248,27 @@ if st.session_state.vector_store is not None:
             }
         )
 
-        # LLM
         llm = ChatMistralAI(
-            model_name="ministral-8b-2512",
+            model="ministral-8b-2512",
             temperature=0.1,
-            api_key=st.secrets.get("MISTRAL_API_KEY", os.getenv("MISTRAL_API_KEY"))
+            api_key=MISTRAL_API_KEY
         )
 
-        # Generate response
         with st.chat_message("assistant"):
-
             with st.spinner("Thinking..."):
-
-                response = llm.invoke(final_prompt)
-
+                response = llm.invoke(
+                    final_prompt
+                )
                 answer = response.content
-
                 st.markdown(answer)
 
-        # Save assistant response
         st.session_state.messages.append(
             {
                 "role": "assistant",
                 "content": answer
             }
         )
-
 else:
-
-    st.info("Upload a PDF to start chatting.")
+    st.info(
+        "Upload a PDF to start chatting."
+    )
