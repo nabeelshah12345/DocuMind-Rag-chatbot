@@ -67,7 +67,7 @@ if uploaded_file is not None:
             # Create embeddings
             embedding = MistralAIEmbeddings(
             model="codestral-embed-2505",
-            api_key=st.secrets.get("MISTRAL_API_KEY", os.getenv("MISTRAL_API_KEY"))
+            api_key=st.secrets["MISTRAL_API_KEY"]
             )
 
             # Create Chroma database
