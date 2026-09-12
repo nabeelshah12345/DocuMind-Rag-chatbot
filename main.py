@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
-embedding = MistralAIEmbeddings()
+embedding = MistralAIEmbeddings(model="codestral-embed-2505")
 
 vector_store = Chroma(
     persist_directory="Chroma_db",

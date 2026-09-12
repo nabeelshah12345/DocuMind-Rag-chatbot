@@ -29,7 +29,7 @@ splitter = RecursiveCharacterTextSplitter(
 )
 chunks = splitter.split_documents(docs)
 
-embedding = MistralAIEmbeddings()
+embedding = MistralAIEmbeddings(model="codestral-embed-2505")
 
 total = len(chunks)  # total = 889
 
