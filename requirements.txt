@@ -1,0 +1,30 @@
+# ── Core Orchestration ──
+langchain
+langchain-community
+langchain-core
+
+# ── LLM Provider 
+langchain-mistralai
+
+# ── Embeddings ──
+sentence-transformers          # for free local embeddings (no API cost)
+
+# ── Vector Store ──
+chromadb                       # beginner-friendly, local, persistent
+
+# ── Document Loaders ──
+pypdf                          # for PDF loading
+unstructured                   # for parsing mixed formats (docx, html, etc.) — optional, heavier install
+
+# ── Text Splitting ──
+tiktoken                       # token counting, needed by some splitters
+
+# ── Environment & Config ──
+python-dotenv                
+
+# ── UI (for demoing your project) ──
+streamlit                      # you already know this — reuse it here
+
+# ── Utilities ──
+numpy
+torchvision
