@@ -65,7 +65,10 @@ if uploaded_file is not None:
             chunks = splitter.split_documents(docs)
 
             # Create embeddings
-            embedding = MistralAIEmbeddings()
+            embedding = MistralAIEmbeddings(
+            model="mistral-embed",
+            api_key=st.secrets.get("MISTRAL_API_KEY", os.getenv("MISTRAL_API_KEY"))
+            )
 
             # Create Chroma database
             vector_store = Chroma.from_documents(
@@ -157,7 +160,8 @@ if st.session_state.vector_store is not None:
         # LLM
         llm = ChatMistralAI(
             model_name="ministral-8b-2512",
-            temperature=0.1
+            temperature=0.1,
+            api_key=st.secrets.get("MISTRAL_API_KEY", os.getenv("MISTRAL_API_KEY"))
         )
 
         # Generate response
