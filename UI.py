@@ -10,6 +10,14 @@ from langchain_community.vectorstores import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 
+st.set_page_config(
+    page_title="DocuMind",
+    page_icon="🤖",
+    layout="centered"
+)
+st.title("🤖 DocuMind")
+st.caption("Upload a PDF and ask questions from its content.")
+
 load_dotenv()
 
 try:
@@ -20,7 +28,6 @@ try:
 except Exception:
     MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
-
 if not MISTRAL_API_KEY:
     st.error(
         "MISTRAL_API_KEY not found. "
@@ -28,21 +35,18 @@ if not MISTRAL_API_KEY:
     )
     st.stop()
 
-st.set_page_config(
-    page_title="DocuMind",
-    page_icon="🤖",
-    layout="centered"
-)
 
-st.title("🤖 DocuMind")
-st.caption("Upload a PDF and ask questions from its content.")
 
-# state
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Clear Chat Button
+if "file_hash" not in st.session_state:
+    st.session_state.file_hash = None
+
+# Clear Chat
 if st.session_state.messages:
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
@@ -52,9 +56,6 @@ if st.session_state.messages:
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-
-if "file_hash" not in st.session_state:
-    st.session_state.file_hash = None
 
 
 uploaded_file = st.file_uploader(
@@ -151,15 +152,11 @@ if uploaded_file is not None:
 
                 # Clear previous conversation
                 st.session_state.messages = []
-                st.success(
-                    f"PDF processed successfully! "
-                )
+                st.success("PDF processed successfully!")
 
             except Exception as e:
 
-                st.error(
-                    f"Error while processing PDF:\n\n{str(e)}"
-                )
+                st.error("Error while processing PDF:\n\n{str(e)}")
 
                 st.session_state.vector_store = None
 
